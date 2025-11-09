@@ -1,0 +1,108 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: AWS WAF Project
+
+Parameters:
+  ProjectName:
+    Description: ProjectName
+    Type: String
+
+  DbName:
+    Type: String
+    Default: mytestdb
+    Description: Initial database name
+
+  DbUserName:
+    Type: String
+    Default: admin
+    Description: Master username
+
+  DbPassword:
+    Type: String
+    NoEcho: true
+    Default: password
+    Description: Master user password
+
+  DbInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    Description: Instance class for RDS
+
+Resources:
+  # Subnet Group
+  WafDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: "Subnet group for db"
+      SubnetIds:
+        - !ImportValue DbSn5Id
+        - !ImportValue DbSn6Id
+      DBSubnetGroupName: !Sub "${ProjectName}-db-sng"
+
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow MySQL
+      VpcId: !ImportValue VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-sg-db"
+  # RDS Instance
+  WafDBInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    Properties:
+      DBInstanceIdentifier: !Sub "${ProjectName}-db"
+      Engine: mariadb
+      DBName: !Ref DbName
+      MasterUsername: !Ref DbUserName
+      MasterUserPassword: !Ref DbPassword
+      DBInstanceClass: !Ref DbInstanceClass
+      AllocatedStorage: 20
+      StorageType: gp2
+      StorageEncrypted: false
+      AutoMinorVersionUpgrade: false
+      BackupRetentionPeriod: 0                # 자동 백업 비활성화
+      EnablePerformanceInsights: false
+      DeletionProtection: false
+      PubliclyAccessible: false
+      MultiAZ: false
+      VPCSecurityGroups:
+        - !Ref DBSecurityGroup
+      DBSubnetGroupName: !Ref WafDBSubnetGroup
+      AvailabilityZone: !Sub "${AWS::Region}a"
+      MaxAllocatedStorage: 20                 # 자동 스토리지 확장 비활성화
+
+Outputs:
+  DBEndpoint:
+    Description: "RDS Endpoint Address"
+    Value: !GetAtt WafDBInstance.Endpoint.Address
+    Export:
+      Name: DBEndpoint
+  DBPort:
+    Description: "RDS Endpoint Port"
+    Value: !GetAtt WafDBInstance.Endpoint.Port
+    Export:
+      Name: DBPort
+  DbName:
+    Description: "RDS DataBase Name"
+    Value: !Ref DbName
+    Export:
+      Name: DbName
+  DbUserName:
+    Description: "RDS DataBase UserName"
+    Value: !Ref DbUserName
+    Export:
+      Name: DbUserName
+  DbPassword:
+    Description: "RDS DataBase Password"
+    Value: !Ref DbPassword
+    Export:
+      Name: DbPassword
+
+...

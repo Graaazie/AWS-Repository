@@ -1,0 +1,301 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: AWS WAF Project
+
+Parameters:
+  ProjectName:
+    Description: ProjectName
+    Type: String
+  PubKeyMaterial:
+    Description: PubKeyMaterial
+    Type: String
+
+Mappings:
+  VpcCidrMap:
+    ap-northeast-2:
+      VpcSn: 172.16.0.0/16
+      VpcPubSn1: 172.16.1.0/24
+      VpcPubSn2: 172.16.2.0/24
+      VpcPriSn3: 172.16.3.0/24
+      VpcPriSn4: 172.16.4.0/24
+      VpcDbSn5: 172.16.5.0/24
+      VpcDbSn6: 172.16.6.0/24
+  ImgIdMap:
+    ap-northeast-2:
+      OpenVpnId: ami-09a093fa2e3bfca5a
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !FindInMap [VpcCidrMap, !Ref "AWS::Region", VpcSn]
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-vpc"
+
+  Igw:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-igw"
+  IgwAtt:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref Igw
+
+  PubSn1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !FindInMap [VpcCidrMap, !Ref "AWS::Region", VpcPubSn1]
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-pub-sn1"
+  PubSn2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !FindInMap [VpcCidrMap, !Ref "AWS::Region", VpcPubSn2]
+      AvailabilityZone: !Select [2, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-pub-sn2"
+  PriSn3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !FindInMap [VpcCidrMap, !Ref "AWS::Region", VpcPriSn3]
+      AvailabilityZone: !Select [2, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-pri-sn3"
+  PriSn4:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !FindInMap [VpcCidrMap, !Ref "AWS::Region", VpcPriSn4]
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-pri-sn4"
+  DbSn5:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !FindInMap [VpcCidrMap, !Ref "AWS::Region", VpcDbSn5]
+      AvailabilityZone: !Select [2, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-db-sn5"
+  DbSn6:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !FindInMap [VpcCidrMap, !Ref "AWS::Region", VpcDbSn6]
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-db-sn6"
+
+  PubRt12:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-pub-rt12"
+  PubRt12Sn1Att:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PubSn1
+      RouteTableId: !Ref PubRt12
+  PubRt12Sn2Att:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PubSn2
+      RouteTableId: !Ref PubRt12
+  PubRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IgwAtt
+    Properties:
+       RouteTableId: !Ref PubRt12
+       DestinationCidrBlock: 0.0.0.0/0
+       GatewayId: !Ref Igw
+
+  PriRt34:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-pri-rt34"
+  PriRt34Sn3Att:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PriSn3
+      RouteTableId: !Ref PriRt34
+  PriRt34Sn4Att:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PriSn4
+      RouteTableId: !Ref PriRt34
+
+  NatGwEip:
+    Type: AWS::EC2::EIP
+    Properties:
+        Tags:
+          - Key: Name
+            Value: !Sub "${ProjectName}-nat-eip"
+  NatGw:
+    Type: AWS::EC2::NatGateway
+    Properties:
+        AllocationId: !GetAtt NatGwEip.AllocationId
+        SubnetId: !Ref PubSn1
+        Tags:
+          - Key: Name
+            Value: !Sub "${ProjectName}-nat-gw"
+  NatGwRoute:
+    Type: AWS::EC2::Route
+    DependsOn: NatGw
+    Properties:
+       RouteTableId: !Ref PriRt34
+       DestinationCidrBlock: 0.0.0.0/0
+       NatGatewayId: !Ref NatGw
+
+  DbRt56:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-db-rt56"
+  DbRt56Sn5Att:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref DbSn5
+      RouteTableId: !Ref DbRt56
+  DbRt56Sn6Att:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref DbSn6
+      RouteTableId: !Ref DbRt56
+
+  NewKeyPair:
+    Type: AWS::EC2::KeyPair
+    Properties:
+      KeyName: !Sub "${ProjectName}-key"
+      PublicKeyMaterial: !Ref PubKeyMaterial
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-key"
+
+  SgOpenVpn:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTPS, SSH, ICMP, tcp943, tcp945, udp1194
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 943
+          ToPort: 943
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 945
+          ToPort: 945
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: udp
+          FromPort: 1194
+          ToPort: 1194
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-sg-open-vpn"
+
+  OpenVpn:
+    Type: AWS::EC2::Instance
+    DependsOn: 
+      - PubRoute
+    Properties:
+      ImageId: !FindInMap [ImgIdMap, !Ref "AWS::Region", OpenVpnId]
+      InstanceType: t3.micro
+      NetworkInterfaces: 
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          GroupSet: 
+            - !Ref SgOpenVpn
+          SubnetId: !Ref PubSn2
+          PrivateIpAddress: !Join
+            - "."
+            - - !Select [0, !Split [".", !FindInMap [VpcCidrMap, !Ref "AWS::Region", VpcPubSn2]]]
+              - !Select [1, !Split [".", !FindInMap [VpcCidrMap, !Ref "AWS::Region", VpcPubSn2]]]
+              - !Select [2, !Split [".", !FindInMap [VpcCidrMap, !Ref "AWS::Region", VpcPubSn2]]]
+              - "100"
+      KeyName: !Ref NewKeyPair
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-open-vpn"
+
+Outputs:
+  VpcId:
+    Description: VpcId
+    Value: !Ref Vpc
+    Export:
+      Name: VpcId
+  PubSn1Id:
+    Description: Public SubNet-1 ID
+    Value: !Ref PubSn1
+    Export:
+      Name: PubSn1Id
+  PubSn2Id:
+    Description: Public SubNet-2 ID
+    Value: !Ref PubSn2
+    Export:
+      Name: PubSn2Id
+  PriSn3Id:
+    Description: Private SubNet-3 ID
+    Value: !Ref PriSn3
+    Export:
+      Name: PriSn3Id
+  PriSn4Id:
+    Description: Private SubNet-4 ID
+    Value: !Ref PriSn4
+    Export:
+      Name: PriSn4Id
+  DbSn5Id:
+    Description: DataBase SubNet-5 ID
+    Value: !Ref DbSn5
+    Export:
+      Name: DbSn5Id
+  DbSn6Id:
+    Description: DataBase SubNet-6 ID
+    Value: !Ref DbSn6
+    Export:
+      Name: DbSn6Id
+  KeyPairName:
+    Description: KeyPairName
+    Value: !Ref NewKeyPair
+    Export:
+      Name: KeyPairName
+  OpenVpnPriIp:
+    Description: OpenVpn Prvate Ip Address
+    Value: !GetAtt OpenVpn.PrivateIp
+    Export:
+      Name: OpenVpnPriIp
+...

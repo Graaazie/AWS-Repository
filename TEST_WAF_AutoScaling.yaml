@@ -1,0 +1,246 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: AWS WAF Project
+
+Parameters:
+  ProjectName:
+    Description: ProjectName
+    Type: String
+  DbUserName:
+    Description: DataBase User Name
+    Type: String
+    Default: dvwa
+  DbUserPass:
+    Description: DataBase User Password
+    Type: String
+    NoEcho: true
+    Default: p@ssw0rd
+
+Mappings:
+  VpcCidrMap:
+    ap-northeast-2:
+      VpcSn: 172.16.0.0/16
+      VpcPubSn1: 172.16.1.0/24
+      VpcPubSn2: 172.16.2.0/24
+      VpcPriSn3: 172.16.3.0/24
+      VpcPriSn4: 172.16.4.0/24
+      VpcDbSn5: 172.16.5.0/24
+      VpcDbSn6: 172.16.6.0/24
+  ImgIdMap:
+    ap-northeast-2:
+      ImgId2023: ami-07b70db997adb22fb # 아마존 리눅스 2023(기본)
+      ImgId2: ami-06a15f1e8514b802f # 아마존 리눅스 2
+
+Resources:
+  WebAlbSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Alb Security Group
+      VpcId: !ImportValue VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-alb-sg"
+  WebAlb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      Name: !Sub "${ProjectName}-web-alb"
+      SecurityGroups:
+        - !Ref WebAlbSg
+      Subnets:
+        - !ImportValue PubSn1Id
+        - !ImportValue PubSn2Id
+  WebAlbTg:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "${ProjectName}-web-tg"
+      Port: 80
+      Protocol: HTTP
+      HealthCheckPath: '/login.php'
+      HealthCheckIntervalSeconds: 10
+      HealthyThresholdCount: 3
+      UnhealthyThresholdCount: 3
+      VpcId: !ImportValue VpcId
+      TargetGroupAttributes:
+        - Key: stickiness.enabled                                     # 고정 활성화
+          Value: true
+        - Key: stickiness.type                                        # 고정할 타입 lb_cookie, app_cookie is ALB / source_ip is NLB
+          Value: lb_cookie                                            # source_ip_dest_ip, source_ip_dest_ip_proto is GLB
+        - Key: stickiness.lb_cookie.duration_seconds                  # 고정할 시간 (단위: 초)
+          Value: 3600
+      Tags:
+        - Key : Name
+          Value : !Sub "${ProjectName}-web-tg"
+  WebAlbListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref WebAlbTg
+      LoadBalancerArn: !Ref WebAlb
+      Port: 80
+      Protocol: HTTP
+
+  WebSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Web Security Group
+      VpcId: !ImportValue VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !FindInMap [VpcCidrMap, !Ref "AWS::Region", VpcPubSn2]
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref WebAlbSg
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-web-sg"
+
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub "${ProjectName}-lt"
+      VersionDescription: version 1.0
+      LaunchTemplateData:
+        ImageId: !FindInMap [ImgIdMap, !Ref "AWS::Region", ImgId2]
+        InstanceType: t3.micro
+        KeyName: !ImportValue KeyPairName
+        SecurityGroupIds:
+          - !Ref WebSg
+        # UserData:
+        #   Fn::Base64: !Sub
+        #     - |
+        #       #!/bin/bash
+        #       yum install -y httpd mariadb php php-mysql php-gd
+        #       systemctl start httpd
+        #       systemctl enable httpd
+        #       wget https://github.com/digininja/DVWA/archive/master.zip
+        #       unzip master.zip
+        #       mv DVWA-master/* /var/www/html/
+
+        #       # MySQL 변수 정의
+        #       DB_NAME="${DBName}"
+        #       DB_USER="${DbUserName}"
+        #       DB_HOST="${DBHost}"
+        #       USER_PWD="${DbUserPass}"
+
+        #       # SQL 명령어 정의
+        #       SQL_COMMANDS=$(cat <<EOF
+        #       CREATE USER '$${DB_USER}'@'%' IDENTIFIED BY '$${USER_PWD}';
+        #       GRANT ALL PRIVILEGES ON $${DB_NAME}.* TO '$${DB_USER}'@'%';
+        #       FLUSH PRIVILEGES;
+        #       EOF
+        #       )
+
+        #       # MySQL 접속 및 실행
+        #       mysql -h $${DB_HOST} -u $${DB_USER} -p$${USER_PWD} -e "$${SQL_COMMANDS}"
+
+        #       cd /var/www/html/config
+        #       mv config.inc.php.dist config.inc.php
+        #       sed -i "s/=getenv('DB_SERVER') ?: '127.0.0.1';/=getenv('DB_SERVER') ?: '$${DB_HOST}';/g" /var/www/html/config/config.inc.php
+        #       sed -i "s/=getenv('DB_DATABASE') ?: 'dvwa';/=getenv('DB_DATABASE') ?: '$${DB_NAME}';/g" /var/www/html/config/config.inc.php
+        #       sed -i "s/=getenv('DB_USER') ?: 'dvwa';/=getenv('DB_USER') ?: '$${DB_USER}';/g" /var/www/html/config/config.inc.php
+        #       sed -i "s/=getenv('DB_PASSWORD') ?: 'p@ssw0rd';/=getenv('DB_PASSWORD') ?: '$${USER_PWD}';/g" /var/www/html/config/config.inc.php
+        #       sed -i "s/allow_url_include = Off/allow_url_include = On/g" /etc/php.ini
+        #       chmod 777 ./config
+        #       chmod 777 ./hackable/uploads
+        #       chmod 666 ./external/recaptcha/recaptchalib.php
+        #       systemctl restart httpd
+        #     - {
+        #         DBName: !ImportValue DbName,
+        #         DBHost: !ImportValue DBEndpoint,
+        #         DbUserName: !Ref DbUserName,
+        #         DbUserPass: !Ref DbUserPass
+        #       }
+        UserData:
+          Fn::Base64: 
+            !Join
+              - ''
+              - - "#!/bin/bash\n"
+                - "yum install -y httpd mariadb php php-mysql php-gd unzip\n"
+                - "systemctl start httpd\n"
+                - "systemctl enable httpd\n"
+                - "wget https://github.com/digininja/DVWA/archive/master.zip\n"
+                - "unzip master.zip\n"
+                - "mv DVWA-master/* /var/www/html/\n"
+                - "\n"
+                - "# MySQL 변수 정의\n"
+                - "DB_NAME='"
+                - !ImportValue DbName
+                - "'\n"
+                - "DB_USER='"
+                - !Ref DbUserName
+                - "'\n"
+                - "DB_HOST='"
+                - !ImportValue DBEndpoint
+                - "'\n"
+                - "USER_PWD='"
+                - !Ref DbUserPass
+                - "'\n"
+                - "\n"
+                - "# SQL 명령어 정의\n"
+                - "SQL_COMMANDS=$(cat <<EOF\n"
+                - "CREATE USER '$${DB_USER}'@'%' IDENTIFIED BY '$${USER_PWD}';\n"
+                - "GRANT ALL PRIVILEGES ON $${DB_NAME}.* TO '$${DB_USER}'@'%';\n"
+                - "FLUSH PRIVILEGES;\n"
+                - "EOF\n"
+                - ")\n"
+                - "\n"
+                - "# MySQL 접속 및 실행\n"
+                - "mysql -h $${DB_HOST} -u $${DB_USER} -p$${USER_PWD} -e \"$${SQL_COMMANDS}\"\n"
+                - "\n"
+                - "cd /var/www/html/config\n"
+                - "mv config.inc.php.dist config.inc.php\n"
+                - "sed -i \"s/=getenv('DB_SERVER') ?: '127.0.0.1';/=getenv('DB_SERVER') ?: '$${DB_HOST}';/g\" /var/www/html/config/config.inc.php\n"
+                - "sed -i \"s/=getenv('DB_DATABASE') ?: 'dvwa';/=getenv('DB_DATABASE') ?: '$${DB_NAME}';/g\" /var/www/html/config/config.inc.php\n"
+                - "sed -i \"s/=getenv('DB_USER') ?: 'dvwa';/=getenv('DB_USER') ?: '$${DB_USER}';/g\" /var/www/html/config/config.inc.php\n"
+                - "sed -i \"s/=getenv('DB_PASSWORD') ?: 'p@ssw0rd';/=getenv('DB_PASSWORD') ?: '$${USER_PWD}';/g\" /var/www/html/config/config.inc.php\n"
+                - "sed -i \"s/allow_url_include = Off/allow_url_include = On/g\" /etc/php.ini\n"
+                - "chmod 777 /var/www/html/config\n"
+                - "chmod 777 /var/www/html/hackable/uploads\n"
+                - "chmod 666 /var/www/html/external/recaptcha/recaptchalib.php\n"
+                - "systemctl restart httpd\n"
+
+
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: !Sub "${ProjectName}-asg"
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      VPCZoneIdentifier:
+        - !ImportValue PriSn3Id
+        - !ImportValue PriSn4Id
+      TargetGroupARNs:
+        - !Ref WebAlbTg
+      DesiredCapacity: 2
+      MinSize: 2
+      MaxSize: 4
+  ScalingPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 50
+
+...
