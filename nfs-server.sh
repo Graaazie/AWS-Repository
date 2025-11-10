@@ -1,5 +1,5 @@
 #!/bin/bash
-yum install -y nfs-utils
+apt install -y nfs-utils amazon-ec2-utils
 mkdir /shared
 chmod 777 /shared
 echo "/shared 172.16.*(rw,sync)" > /etc/exports
