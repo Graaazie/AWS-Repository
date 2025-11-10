@@ -1,13 +1,14 @@
 #!/bin/bash
 
 DB_NAME="mytestdb"
-DB_USER="user1"
+DB_USER="dvwa"
 USER_PWD="p@ssw0rd"
 DB_Admin="admin"
 Admin_PWD="password"
 DB_HOST="waf-db.cp8was4ksowb.ap-northeast-2.rds.amazonaws.com"
 
 SQL_COMMANDS=$(cat <<EOF
+DROP USER IF EXISTS '${DB_USER}'@'%';
 CREATE USER '${DB_USER}'@'%' IDENTIFIED BY '${USER_PWD}';
 GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'%';
 FLUSH PRIVILEGES;
