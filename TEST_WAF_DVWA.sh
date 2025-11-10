@@ -19,4 +19,4 @@ sed -i "s/=getenv('DB_DATABASE') ?: 'dvwa';/=getenv('DB_DATABASE') ?: '${DB_NAME
 sed -i "s/=getenv('DB_USER') ?: 'dvwa';/=getenv('DB_USER') ?: '${DB_USER}';/g" /var/www/html/config/config.inc.php
 sed -i "s/=getenv('DB_PASSWORD') ?: 'p@ssw0rd';/=getenv('DB_PASSWORD') ?: '${USER_PWD}';/g" /var/www/html/config/config.inc.php
 
-mysql -h ${DB_HOST} -u ${DB_Admin} -p${Admin_PWD} ${DB_Name} -e "${SQL_COMMANDS}"
+mysql -h ${DB_HOST} -u ${DB_Admin} -p${Admin_PWD} ${DB_NAME} -e "${SQL_COMMANDS}"
